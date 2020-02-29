@@ -11,22 +11,21 @@
 #define calcIndex(width, x,y)  ((y)*(width) + (x))
 
 long TimeSteps = 100;
+int w, h;
 
-void writeVTK2(long timestep, double *data, char prefix[1024], int w, int h) {
+void writeVTK2(long timestep, double *data, char prefix[1024], int offsetX, int offsetY, int lSize) {
   char filename[2048];  
-  int x,y; 
-  
-  int offsetX=0;
-  int offsetY=0;
+  int x,y;
+
   float deltax=1.0;
-  long  nxy = w * h * sizeof(float);  
+  long  nxy = lSize * lSize * sizeof(float);  
 
   snprintf(filename, sizeof(filename), "%s-%05ld%s", prefix, timestep, ".vti");
   FILE* fp = fopen(filename, "w");
 
   fprintf(fp, "<?xml version=\"1.0\"?>\n");
   fprintf(fp, "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n");
-  fprintf(fp, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n", offsetX, offsetX + w, offsetY, offsetY + h, 0, 0, deltax, deltax, 0.0);
+  fprintf(fp, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n", offsetX, (offsetX + lSize), offsetY, (offsetY + lSize), 0, 0, deltax, deltax, 0.0);
   fprintf(fp, "<CellData Scalars=\"%s\">\n", prefix);
   fprintf(fp, "<DataArray type=\"Float32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n", prefix);
   fprintf(fp, "</CellData>\n");
@@ -35,9 +34,9 @@ void writeVTK2(long timestep, double *data, char prefix[1024], int w, int h) {
   fprintf(fp, "_");
   fwrite((unsigned char*)&nxy, sizeof(long), 1, fp);
 
-  for (y = 0; y < h; y++) {
-    for (x = 0; x < w; x++) {
-      float value = data[calcIndex(h, x,y)];
+  for (y = 0; y < lSize; y++) {
+    for (x = 0; x < lSize; x++) {
+      float value = data[calcIndex(h, x, y)];
       fwrite((unsigned char*)&value, sizeof(float), 1, fp);
     }
   }
@@ -59,7 +58,7 @@ void show(double* currentfield, int w, int h) {
   fflush(stdout);
 }
 
-double get_nums_neighbour(double* currentfield, int x, int y, int w, int h) {
+double get_nums_neighbour(double* currentfield, int x, int y) {
   int lefter, upper, righter, downer;
   lefter = x-1;
   upper = y-1;
@@ -90,11 +89,10 @@ double get_nums_neighbour(double* currentfield, int x, int y, int w, int h) {
   return neighbours_num;
 }
  
-void evolve(double* currentfield, double* newfield, int w, int h) {
-  int x,y;
-  for (y = 0; y < h; y++) {
-    for (x = 0; x < w; x++) {
-      double neighbours_num = get_nums_neighbour(currentfield, x, y, w, h);
+void evolve(double* currentfield, double* newfield, int xStart, int yStart, int lSize) {
+  for (int y = yStart; y < (yStart+lSize); y++) {
+    for (int x = xStart; x < (xStart+lSize); x++) {
+      double neighbours_num = get_nums_neighbour(currentfield, x, y);
       if(currentfield[calcIndex(w, x, y)] == 1.0){
       if (neighbours_num < 2.0) newfield[calcIndex(w, x, y)] = 0.0;
       if (neighbours_num > 3.0) newfield[calcIndex(w, x, y)] = 0.0;
@@ -106,6 +104,7 @@ void evolve(double* currentfield, double* newfield, int w, int h) {
       }
     }
   }
+  
 }
 
 
@@ -113,7 +112,7 @@ void filling(double* currentfield, int w, int h) {
   int i;
   for (i = 0; i < h*w; i++) {
     currentfield[i] = 0;
-    //currentfield[i] = (rand() < RAND_MAX / 10) ? 1 : 0; ///< init domain randomly
+    currentfield[i] = (rand() < RAND_MAX / 10) ? 1 : 0; ///< init domain randomly
   }
   /* Toad
   currentfield[144] = 1;
@@ -122,29 +121,40 @@ void filling(double* currentfield, int w, int h) {
   currentfield[173] = 1;
   currentfield[174] = 1;
   currentfield[175] = 1; */
-  // Glider
+  /* Glider
   currentfield[114] = 1;
   currentfield[145] = 1;
   currentfield[173] = 1;
   currentfield[174] = 1;
-  currentfield[175] = 1;
+  currentfield[175] = 1;*/
 }
  
-void game(int w, int h) {
+void game(int threadX, int threadY, int lSize) {
+  w = threadX*lSize;
+  h = threadY*lSize;
   double *currentfield = calloc(w*h, sizeof(double));
   double *newfield     = calloc(w*h, sizeof(double));
   
   //printf("size unsigned %d, size long %d\n",sizeof(float), sizeof(long));
   
   filling(currentfield, w, h);
+
   long t;
   for (t=0;t<TimeSteps;t++) {
     show(currentfield, w, h);
-    evolve(currentfield, newfield, w, h);
-    
+    int xStart, yStart;
+    #pragma omp parallel firstprivate(w, h, lSize) shared(currentfield, newfield) private(xStart, yStart)
+    {
+      xStart = (int) (omp_get_thread_num() % threadX )*lSize;
+      yStart = (int) (omp_get_thread_num() / threadX )*lSize;
+      printf("threadnum: %d, xstart: %d, ystart:%d", omp_get_thread_num(), xStart, yStart);
+      evolve(currentfield, newfield, xStart, yStart, lSize);
+
+      char prefix[6];
+      snprintf(prefix, sizeof prefix, "%s%d%s", "T", omp_get_thread_num(), "-gol");
+      writeVTK2(t, currentfield, prefix, xStart, yStart, lSize);
+    }
     printf("%ld timestep\n",t);
-    writeVTK2(t,currentfield,"gol", w, h);
-    
     usleep(200000);
 
     //SWAP
@@ -159,10 +169,11 @@ void game(int w, int h) {
 }
  
 int main(int c, char **v) {
-  int w = 0, h = 0;
-  if (c > 1) w = atoi(v[1]); ///< read width
-  if (c > 2) h = atoi(v[2]); ///< read height
-  if (w <= 0) w = 30; ///< default width
-  if (h <= 0) h = 30; ///< default height
-  game(w, h);
+  int xThreads = 2, yThreads = 2, lSize = 10;
+  if(c > 1) xThreads = atoi(v[1]);
+  if(c > 2) yThreads = atoi(v[2]);
+  if(c > 3) lSize = atoi(v[3]);
+  printf("xThreads: %d\nyThreads: %d\nlSize: %d", xThreads, yThreads, lSize);
+  omp_set_num_threads(xThreads*yThreads);
+  game(xThreads, yThreads, lSize);
 }
