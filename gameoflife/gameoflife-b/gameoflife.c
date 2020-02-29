@@ -34,8 +34,8 @@ void writeVTK2(long timestep, double *data, char prefix[1024], int offsetX, int 
   fprintf(fp, "_");
   fwrite((unsigned char*)&nxy, sizeof(long), 1, fp);
 
-  for (y = 0; y < lSize; y++) {
-    for (x = 0; x < lSize; x++) {
+  for (y = offsetY; y < offsetY+lSize; y++) {
+    for (x = offsetX; x < offsetX+lSize; x++) {
       float value = data[calcIndex(h, x, y)];
       fwrite((unsigned char*)&value, sizeof(float), 1, fp);
     }
