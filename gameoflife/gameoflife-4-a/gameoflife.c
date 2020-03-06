@@ -93,8 +93,13 @@ double get_nums_neighbour(double* currentfield, int x, int y) {
 }
  
 void evolve(double* currentfield, double* newfield, int start, int lSize) {
-    for (int x = start; x < (start+lSize); x++) {
-      int y = (int) (x+1) / w;
+  int x = start;
+    for (int i = start; i < (start+lSize); i++) {
+      x += 1;
+      if(x == w) {
+        x = 0;
+      }
+      int y = (int) (i) / w;
       double neighbours_num = get_nums_neighbour(currentfield, x, y);
       if(currentfield[calcIndex(w, x, y)] == 1.0){
       if (neighbours_num < 2.0) newfield[calcIndex(w, x, y)] = 0.0;
@@ -106,6 +111,14 @@ void evolve(double* currentfield, double* newfield, int start, int lSize) {
         else newfield[calcIndex(w, x, y)] = 0.0;
       }
     }
+    int size = sizeof(currentfield) / sizeof(double);
+    printf("size: %d", size);
+    /*for(int f = 0; f < size; f++){
+      printf("%f ", currentfield[f]);
+      if(f%9 == 0){
+        printf("\n");
+      }
+    }*/
   
 }
 
