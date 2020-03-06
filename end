@@ -1,0 +1,30 @@
+[33mcommit 295dca3585d073039e8cd30d49ea300978846eb5[m[33m ([m[1;36mHEAD -> [m[1;32mmaster[m[33m, [m[1;31morigin/master[m[33m)[m
+Author: guemer <mert.gunduz1997@gmail.com>
+Date:   Sat Feb 29 06:04:41 2020 -0800
+
+    [master] übungsblatt 2 fertig
+
+[33mcommit d314540c429ee6439cf593d340edb725cabe1954[m
+Merge: 2901a14 7a59df8
+Author: guemer <mert.gunduz1997@gmail.com>
+Date:   Sat Feb 29 05:12:01 2020 -0800
+
+    Merge branch 'master' of https://github.com/Mert-Guenduez/high-end-computing
+
+[33mcommit 2901a14ad0da09e0e013c5c9719f5d7aaade14e3[m
+Author: guemer <mert.gunduz1997@gmail.com>
+Date:   Sat Feb 29 05:11:40 2020 -0800
+
+    [master] neuer stand
+
+[33mcommit 7a59df8b9f4ff3bf4f006f9c56b0b4fda4cf3f7f[m
+Author: Mert-Guenduez <42411990+Mert-Guenduez@users.noreply.github.com>
+Date:   Fri Feb 28 15:54:35 2020 +0100
+
+    Create README.md
+
+[33mcommit 75b31c83491a780db8834a02b1c54478d31b832e[m
+Author: guemer <mert.gunduz1997@gmail.com>
+Date:   Fri Feb 28 06:52:50 2020 -0800
+
+    [master] initial commit
