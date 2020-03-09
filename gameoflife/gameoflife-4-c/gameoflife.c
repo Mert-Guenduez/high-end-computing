@@ -14,12 +14,11 @@
 long TimeSteps = 1;
 int w, h;
 
-void writeVTK2(long timestep, double *data, char prefix[1024], int lSize, int offsetX, int offsetY) {
-  char filename[2048];  
-  int x,y;
+void writeVTK2(long timestep, double *data, char prefix[1024], int rank, int lySize, int lxSize) {
+  char filename[2048];
 
   float deltax=1.0;
-  long  nxy = lSize * lSize * sizeof(float);  
+  long  nxy = lxSize * lySize * sizeof(long);  
 
   snprintf(filename, sizeof(filename), "%s-%05ld%s", prefix, timestep, ".vti");
   FILE* fp = fopen(filename, "w");
@@ -27,7 +26,7 @@ void writeVTK2(long timestep, double *data, char prefix[1024], int lSize, int of
   fprintf(fp, "<?xml version=\"1.0\"?>\n");
   fprintf(fp, "<VTKFile type=\"ImageData\" version=\"0.1\" byte_order=\"LittleEndian\" header_type=\"UInt64\">\n");
   // fprintf(fp, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n", offsetX, (offsetX + lSize), offsetY, (offsetY + lSize), 0, 0, deltax, deltax, 0.0);
-  fprintf(fp, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"0 0 0\" Spacing=\"%le %le %le\">\n", 0, lSize, 0, 1, 0, 0, deltax, deltax, 0.0);
+  fprintf(fp, "<ImageData WholeExtent=\"%d %d %d %d %d %d\" Origin=\"%d %d 0\" Spacing=\"%le %le %le\">\n", 0, lxSize, 0, lySize, 0 ,0, 0, (rank*lySize), deltax, deltax, 0.0);
   fprintf(fp, "<CellData Scalars=\"%s\">\n", prefix);
   fprintf(fp, "<DataArray type=\"Float32\" Name=\"%s\" format=\"appended\" offset=\"0\"/>\n", prefix);
   fprintf(fp, "</CellData>\n");
@@ -35,11 +34,14 @@ void writeVTK2(long timestep, double *data, char prefix[1024], int lSize, int of
   fprintf(fp, "<AppendedData encoding=\"raw\">\n");
   fprintf(fp, "_");
   fwrite((unsigned char*)&nxy, sizeof(long), 1, fp);
-  y = offsetY;
-    for (x = offsetX; x < offsetX+lSize; x++) {
-      float value = 1.0; //data[calcIndex(h, x, y)];
-      fwrite((unsigned char*)&value, sizeof(float), 1, fp);
+
+  for (int y = 0; y < lySize; y++) {
+    for (int x = 0; x < lxSize; x++) {
+      int value = data[calcIndex(lxSize, x, y)];
+      fwrite((unsigned char*)&value, sizeof(int), 1, fp);
+      fflush(fp);
     }
+  }
 
   
   fprintf(fp, "\n</AppendedData>\n");
@@ -121,62 +123,104 @@ void evolve(double* currentfield, double* newfield, int start, int lSize) {
 }
 
 
-void filling(double* currentfield, int lSize) {
+void filling(double* currentfield, int size) {
   currentfield[0] = 0.0;
-  for(int i = 1; i < lSize; i++){
+  for(int i = 1; i < size; i++){
     currentfield[i] = !currentfield[i-1];
   }
 }
- 
-void game(int rank, int size, MPI_Comm communicator, MPI_Status status, int lSize) {
-  double *currentfield = calloc(lSize, sizeof(double));
-  
-  filling(currentfield, lSize);
 
-  double *leftfield = calloc(lSize, sizeof(double));
-  double *rightfield = calloc(lSize, sizeof(double));
-  double *newfield     = calloc(lSize, sizeof(double));
-  int rightneighbourrank, leftneighbourrank;
+void printDebug(double* array, int size, int from, int to) {
+  printf("#%d <<<< #%d:[", to, from);
+  for (int i = 0; i < size; i++) {
+      printf(" %f", array[i]);
+    }
+  printf("]\n");
+}
+
+void processCommunication(double* currentfield, double* leftfield, double* rightfield, int lxSize, int lySize, int rank, MPI_Comm communicator) {
+  MPI_Status status;
+
+  int rightrank, leftrank;
   MPI_Cart_shift(
-    communicator, 1, 1, &leftneighbourrank, &rightneighbourrank
+    communicator,
+    1,
+    1,
+    &leftrank,
+    &rightrank
   );
+
+  // Root wartet auf Daten vom linken Nachbarn, schickt dann Daten an seinen rechten Nachbarn
   if (rank != 0) {
-    MPI_Recv(leftfield, lSize, MPI_DOUBLE, leftneighbourrank, 0, communicator, &status);
-    printf("Rank %d: Received LEFT buffer from rank %d! Content: %f\n", rank, leftneighbourrank, leftfield[0]);
-    MPI_Send(currentfield, lSize, MPI_DOUBLE, rightneighbourrank, 0, communicator);
+    MPI_Recv(
+        leftfield,    // recv buffer
+        lxSize,       // buffer size
+        MPI_DOUBLE,   // buffer datatype
+        leftrank,     // source rank
+        0,            // tag
+        communicator, // comm
+        &status);     // status
+
+    printDebug(leftfield, lxSize, leftrank, rank);
+
+    MPI_Send(&currentfield[lxSize*(lySize-1)], lxSize, MPI_DOUBLE, rightrank, 0, communicator);
   }
+  // Restlichen schicken Daten an rechten Nachbarn, warten dann auf Daten vom linken Nachbarn
   if (rank == 0) {
-    MPI_Send(currentfield, lSize, MPI_DOUBLE, rightneighbourrank, 0, communicator);
-    MPI_Recv(leftfield, lSize, MPI_DOUBLE, leftneighbourrank, 0, communicator, &status);
-    printf("Rank %d: Received LEFT buffer from rank %d! Content: %f\n", rank, leftneighbourrank, leftfield[0]);
+    MPI_Send(&currentfield[lxSize*(lySize-1)], lxSize, MPI_DOUBLE, rightrank, 0, communicator);
+    MPI_Recv(leftfield, lxSize, MPI_DOUBLE, leftrank, 0, communicator, &status);  
+
+    printDebug(leftfield, lxSize, leftrank, rank);
   }
 
-    if (rank != 0) {
-    MPI_Recv(rightfield, lSize, MPI_DOUBLE, rightneighbourrank, 0, communicator, &status);
-    printf("Rank %d: Received RIGHT buffer from rank %d! Content: %d\n", rank, leftneighbourrank, rightfield[0]);
-    MPI_Send(currentfield, lSize, MPI_DOUBLE, (leftneighbourrank), 0, communicator);
+  // Root wartet auf rechts, schickt dann nach links
+  if (rank != 0) {
+    MPI_Recv(rightfield, lxSize, MPI_DOUBLE, rightrank, 0, communicator, &status);
+    
+    printDebug(rightfield, lxSize, rightrank, rank);
+
+    MPI_Send(&currentfield[0], lxSize, MPI_DOUBLE, leftrank, 0, communicator);
   }
+  // Restlichen schicken links, warten dann auf rechts
   if (rank == 0) {
-    MPI_Send(currentfield, lSize, MPI_DOUBLE, leftneighbourrank, 0, communicator);
-    MPI_Recv(rightfield, lSize, MPI_DOUBLE, rightneighbourrank, 0, communicator, &status);
-    printf("Rank %d: Received RIGHT buffer from rank %d! Content: %d\n", rank, leftneighbourrank, rightfield[0]);
+    MPI_Send(&currentfield[0], lxSize, MPI_DOUBLE, leftrank, 0, communicator);
+    MPI_Recv(rightfield, lxSize, MPI_DOUBLE, rightrank, 0, communicator, &status);
+    
+    printDebug(rightfield, lxSize, rightrank, rank);
   }
+}
+ 
+void game(int lxSize, int lySize, int rank, int size, MPI_Comm communicator) {
   
+
+  // Prozess muss seine eigenen Daten lxSize*lySize und zwei zusätzliche Ränder (GhostLayer) größe lxSize verarbeiten 
+  double *currentfield = calloc(lxSize*lySize, sizeof(double));
+  double *leftfield = calloc(lxSize, sizeof(double));
+  double *rightfield = calloc(lxSize, sizeof(double));
+  
+  // Ergebnisse werden in diesem Feld gespeichert
+  double *newfield = calloc(lxSize*lySize, sizeof(double));
+
+  // Belegen des Feldes mit Startwerten
+  filling(currentfield, lxSize*lySize);
+
+  // Präfix festlegen
+  char prefix[6];
+  snprintf(prefix, sizeof prefix, "%s%d%s", "P", rank, "-gol");
   
   long t;
   for (t=0;t<TimeSteps;t++) {
-    // show(currentfield, w, h);
-    // int start = 0;
-    // evolve(currentfield, newfield, start, lSize);
-
-    char prefix[6];
-    snprintf(prefix, sizeof prefix, "%s%d%s", "P", rank, "-gol"); // replace 1 with rank later
     
-    int xStart = 0;
-    int yStart = (int) (rank / size )*h;
-    writeVTK2(t, currentfield, prefix, lSize, xStart, yStart);
+    processCommunication(currentfield, leftfield, rightfield, lxSize, lySize, rank, communicator);
+    // show(currentfield, w, h);
+    /*int start = 0;
+    evolve(currentfield, newfield, start, lSize);
+    */
+
+    writeVTK2(t, currentfield, prefix, rank, lySize, lxSize);
     printf("%ld timestep\n",t);
     usleep(200000);
+    
 
     //SWAP
     double *temp = currentfield;
@@ -186,27 +230,52 @@ void game(int rank, int size, MPI_Comm communicator, MPI_Status status, int lSiz
   
   free(currentfield);
   free(newfield);
+  free(leftfield);
+  free(rightfield);
 }
  
 int main(int c, char **v) {
-  int myrank, size, lSize;
-  lSize = 10;
-  if(c > 1) lSize = atoi(v[1]);
-  if(c > 2) w = atoi(v[2]);
-  if(c > 3) h = atoi(v[3]);
-  MPI_Status status;
+  int myrank, size, lxSize, lySize;
+  
+  lxSize = 5;
+  lySize = 2;
+  
+  if(c > 1) lxSize = atoi(v[1]); // LX_SIZE
+  if(c > 2) lySize = atoi(v[2]); // LY_SIZE
+  
   MPI_Init( &c, &v );
+  
+
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  MPI_Comm_rank(MPI_COMM_WORLD, &myrank);
+
+  if (size % 2 != 0) {
+    printf("Die Anwendung kann nur mit einer geraden Anzahl an Prozessen gestartet werden!");
+    return 1;
+  }
+
+  printf("Initialisierung von Prozess #%d / %d\n", myrank, size);
+
   int ndims = 1;
   int *dims = malloc(sizeof(int));
-  dims[0] = 10;
+  dims[0] = size;
   int *periods = malloc(sizeof(int));
   periods[0] = true;
-  
   MPI_Comm comm_1d;
-  MPI_Cart_create(MPI_COMM_WORLD, 1, dims, periods, false, &comm_1d );
-  MPI_Comm_size(comm_1d, &size);
-  MPI_Comm_rank(comm_1d, &myrank);
-  printf("Rank: %d, Size:%d\n", myrank, size);
-  game(myrank, size, comm_1d, status, lSize);
+  MPI_Cart_create(
+    MPI_COMM_WORLD, // Kommunikator
+    ndims,          // Dimension(en)
+    dims,           // Anzahl Prozesse in jeder Dimension
+    periods,        // Periodische Ränder?
+    false,          // Prozesse in der Anwendung anders anordnen?
+    &comm_1d        // neuer Kommunikator
+  );
+  
+  // Width: lxSize
+  // Height: lySize
+  // Rank: Prozess rank
+  // size: Totale Anzahl an Prozessoren
+  // Kommunikator: MPI Kommunikator
+  game(lxSize, lySize, myrank, size, comm_1d);
   MPI_Finalize();
 }
