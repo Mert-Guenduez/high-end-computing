@@ -143,20 +143,41 @@ void filling(double* currentfield, int w, int h) {
   }
 }
  
-void game(int threads, int lSize, int c, char **v) {
-  w = 10;
-  h = 10;
-  int myrank;
-  MPI_Status status;
-  MPI_Init( &c, &v );
-  MPI_Comm_rank( MPI_COMM_WORLD, &myrank );
-  printf("Rank: %d\n", myrank);
-  double *currentfield = calloc(w*h, sizeof(double));
-  double *newfield     = calloc(w*h, sizeof(double));
-  
+void game(int rank, int size, MPI_Comm communicator, MPI_Status status) {
+  int lSize = 1;
+  double *currentfield = calloc(lSize, sizeof(double));
+  currentfield[0] = 2;
+  double *leftfield = calloc(lSize, sizeof(double));
+  double *rightfield = calloc(lSize, sizeof(double));
+  //double *newfield     = calloc(lSize, sizeof(double));
+  int rightneighbourrank, leftneighbourrank;
+  MPI_Cart_shift(
+    communicator, 1, 1, &leftneighbourrank, &rightneighbourrank
+  );
+  if (rank != 0) {
+    MPI_Recv(leftfield, lSize, MPI_DOUBLE, leftneighbourrank, 0, communicator, &status);
+    printf("Rank %d: Received LEFT buffer from rank %d! Content: %f\n", rank, leftneighbourrank, leftfield[0]);
+    MPI_Send(currentfield, lSize, MPI_DOUBLE, rightneighbourrank, 0, communicator);
+  }
+  if (rank == 0) {
+    MPI_Send(currentfield, lSize, MPI_DOUBLE, rightneighbourrank, 0, communicator);
+    MPI_Recv(leftfield, lSize, MPI_DOUBLE, leftneighbourrank, 0, communicator, &status);
+    printf("Rank %d: Received LEFT buffer from rank %d! Content: %f\n", rank, leftneighbourrank, leftfield[0]);
+  }
+
+    if (rank != 0) {
+    MPI_Recv(rightfield, lSize, MPI_DOUBLE, rightneighbourrank, 0, communicator, &status);
+    printf("Rank %d: Received RIGHT buffer from rank %d! Content: %d\n", rank, leftneighbourrank, rightfield[0]);
+    MPI_Send(currentfield, lSize, MPI_DOUBLE, (leftneighbourrank), 0, communicator);
+  }
+  if (rank == 0) {
+    MPI_Send(currentfield, lSize, MPI_DOUBLE, leftneighbourrank, 0, communicator);
+    MPI_Recv(rightfield, lSize, MPI_DOUBLE, rightneighbourrank, 0, communicator, &status);
+    printf("Rank %d: Received RIGHT buffer from rank %d! Content: %d\n", rank, leftneighbourrank, rightfield[0]);
+  }
   //printf("size unsigned %d, size long %d\n",sizeof(float), sizeof(long));
   
-  filling(currentfield, w, h);
+  /*filling(currentfield, w, h);
   long t;
   for (t=0;t<TimeSteps;t++) {
     show(currentfield, w, h);
@@ -176,14 +197,24 @@ void game(int threads, int lSize, int c, char **v) {
   }
   
   free(currentfield);
-  free(newfield);
-  MPI_Finalize();
+  free(newfield);*/
 }
  
 int main(int c, char **v) {
-  int threads = 1, lSize = 100;
-  if(c > 1) threads = atoi(v[1]);
-  if(c > 2) lSize = atoi(v[2]);
-  printf("Threads: %d, \nlSize: %d", threads, lSize);
-  game(threads, lSize, c, v);
+  int myrank, size;
+  MPI_Status status;
+  MPI_Init( &c, &v );
+  int ndims = 1;
+  int *dims = malloc(sizeof(int));
+  dims[0] = 10;
+  int *periods = malloc(sizeof(int));
+  periods[0] = true;
+  
+  MPI_Comm comm_1d;
+  MPI_Cart_create(MPI_COMM_WORLD, 1, dims, periods, false, &comm_1d );
+  MPI_Comm_size(comm_1d, &size);
+  MPI_Comm_rank(comm_1d, &myrank);
+  printf("Rank: %d, Size:%d\n", myrank, size);
+  game(myrank, size, comm_1d, status);
+  MPI_Finalize();
 }

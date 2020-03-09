@@ -17,7 +17,7 @@ $(TARGET): $(TARGET).c
 
 
 run: all
-	mpirun -n ${THREADS} ./$(TARGET) ${L_SIZE}
+	mpirun -n ${THREADS} ./$(TARGET)
 	
 clean:
 	$(RM) $(TARGET)
