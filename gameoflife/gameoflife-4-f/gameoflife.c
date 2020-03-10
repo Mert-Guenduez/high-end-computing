@@ -18,52 +18,25 @@ void show(double* currentfield, int size, int w, int rank) {
   int x;
   //printf("\nP%d:\n", rank);
   for (x = 0; x < size; x++) {
-    printf(currentfield[x] ? "1" : "0");//"\033[07m  \033[m" : "  ");
+    printf(currentfield[x] ? "\033[07m  \033[m" : "  ");//"1" : "0");
     if ((x % w == (w-1))) printf("\n");
   } 
   fflush(stdout);
 }
 
-void display(double* currentfield, int size, int w, int rank, MPI_Comm comm) {
+void display(double* currentfield, int size, int w, int rank, int totalProcesses, MPI_Comm comm) {
   
-  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
-  MPI_Barrier(comm);
+  if (rank == 0) printf("\033[H");
   fflush(stdout);
-  if (rank == 0) {
-    //printf("\033[H");
-    fflush(stdout);
-    show(currentfield, size, w, rank);
-    //printf("\n");
-    //fflush(stdout);
-  }
-  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
-  MPI_Barrier(comm);
-
-  if (rank == 1) {
-    show(currentfield, size, w, rank);
-    //printf("\n");
-    //fflush(stdout);
-  }
-  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
-  MPI_Barrier(comm);
-
-  if (rank == 2) {
-    show(currentfield, size, w, rank);
-    //printf("\n");
-    //fflush(stdout);
-  }
-
-  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
-  MPI_Barrier(comm);
-
-  if (rank == 3) {
-    show(currentfield, size, w, rank);
-    //printf("\n");
-    //fflush(stdout);
-  }
-  fflush(stdout);
-  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
+  for (int i = 0; i < totalProcesses; i++)
+  {
+    if (rank == i) {
+      fflush(stdout);
+      show(currentfield, size, w, rank);
+    }
     MPI_Barrier(comm);
+  }
+  fflush(stdout);
 }
 
 void writeVTK2(long timestep, double *data, char prefix[1024], int rank, int lySize, int lxSize, MPI_Comm comm) {
@@ -127,10 +100,8 @@ int coutLifingsPeriodic(double* processingfield, int i, int w) {
  
 
 void evolve(double* processingfield, double* newfield, int w, int fieldlength, int rank) {
-    //if (rank == 2) printf("#%d N: ", rank);
     for (int i = w; i < fieldlength + w; i++) {
       int neighbours_num = coutLifingsPeriodic(processingfield, i, w);
-      //if (rank == 2) printf(" %d", neighbours_num);
       if(processingfield[i] == 1.0){
       if (neighbours_num < 2) newfield[i-w] = 0.0;
       if (neighbours_num > 3) newfield[i-w] = 0.0;
@@ -141,7 +112,6 @@ void evolve(double* processingfield, double* newfield, int w, int fieldlength, i
         else newfield[i-w] = 0.0;
       }
     }
-    //if (rank == 2) printf("\n");
 }
 
 
@@ -206,42 +176,28 @@ void processCommunication(double* currentfield, double* leftfield, double* right
         communicator, // comm
         &status);     // status
 
-    /*if (rank == 2) printDebug(leftfield, lxSize, leftrank, rank);
-    if (rank == 3) printDebug(leftfield, lxSize, leftrank, rank);
-    if (rank == 1) printDebug(leftfield, lxSize, leftrank, rank);*/
-
     MPI_Send(&currentfield[lxSize*(lySize-1)], lxSize, MPI_DOUBLE, rightrank, 0, communicator);
   }
   // Root wartet auf Daten vom linken Nachbarn, schickt dann Daten an seinen rechten Nachbarn
   if (rank == 0) {
     MPI_Send(&currentfield[lxSize*(lySize-1)], lxSize, MPI_DOUBLE, rightrank, 0, communicator);
-    MPI_Recv(leftfield, lxSize, MPI_DOUBLE, leftrank, 0, communicator, &status);  
-
-    //printDebug(leftfield, lxSize, leftrank, rank);
+    MPI_Recv(leftfield, lxSize, MPI_DOUBLE, leftrank, 0, communicator, &status);  ;
   }
 
   // Restlichen schicken links, warten dann auf rechts
   if (rank != 0) {
     MPI_Recv(rightfield, lxSize, MPI_DOUBLE, rightrank, 1, communicator, &status);
-    
-    /*if (rank == 2) printDebug(rightfield, lxSize, rightrank, rank);
-    if (rank == 3) printDebug(rightfield, lxSize, rightrank, rank);
-    if (rank == 1) printDebug(rightfield, lxSize, rightrank, rank);*/
-
     MPI_Send(&currentfield[0], lxSize, MPI_DOUBLE, leftrank, 1, communicator);
   }
   // Root wartet auf rechts, schickt dann nach links
   if (rank == 0) {
     MPI_Send(&currentfield[0], lxSize, MPI_DOUBLE, leftrank, 1, communicator);
     MPI_Recv(rightfield, lxSize, MPI_DOUBLE, rightrank, 1, communicator, &status);
-    
-    //printDebug(rightfield, lxSize, rightrank, rank);
   }
 }
  
 void game(int lxSize, int lySize, int rank, int size, MPI_Comm communicator) {
   
-
   // Prozess muss seine eigenen Daten lxSize*lySize und zwei zusätzliche Ränder (GhostLayer) größe lxSize verarbeiten 
   double *currentfield = calloc(lxSize*lySize, sizeof(double));
   double *leftfield = calloc(lxSize, sizeof(double));
@@ -259,12 +215,10 @@ void game(int lxSize, int lySize, int rank, int size, MPI_Comm communicator) {
   snprintf(prefix, sizeof prefix, "%s%d%s", "P", rank, "-gol");
   long t;
   for (t=0;t<TimeSteps;t++) {
-    
-    if (rank == 0) printf("Timestep: %ld\n", t);
-    fflush(stdout);
-    display(currentfield, lxSize*lySize, lxSize, rank, communicator);
-    MPI_Barrier(communicator);
-    //usleep(200000);
+
+    display(currentfield, lxSize*lySize, lxSize, rank, size, communicator);
+
+    usleep(100000);
 
     writeVTK2(t, currentfield, prefix, rank, lySize, lxSize, communicator);
 
@@ -272,15 +226,6 @@ void game(int lxSize, int lySize, int rank, int size, MPI_Comm communicator) {
     memcpy(&processingfield[0], leftfield, lxSize * sizeof(leftfield));
     memcpy(&processingfield[lxSize], currentfield, lxSize * lySize * sizeof(currentfield)); 
     memcpy(&processingfield[lxSize+lxSize*lySize], rightfield, lxSize * sizeof(rightfield));
-
-    /*if (rank == 0) {
-      /*printf("LEFT: ");printDebug(leftfield, lxSize, rank, rank);
-      printf("MIDDLE: ");printDebug(currentfield, lxSize*lySize, rank, rank);
-      printf("RIGHT: ");printDebug(rightfield, lxSize, rank, rank);
-      printf("ALL: ");printDebug(processingfield, 2*lxSize+lxSize*lySize, rank, rank);
-      int n = coutLifingsPeriodic(processingfield, 8, lxSize);
-      printf("#0 NACHBARN: %d\n", n);
-    }*/
 
     evolve(processingfield, newfield, lxSize, lxSize*lySize, rank);  
 
@@ -316,7 +261,7 @@ int main(int c, char **v) {
     return 1;
   }
 
-  //printf("Initialisierung von Prozess #%d / %d\n", myrank, size);
+  printf("Initialisierung von Prozess #%d / %d\n", myrank, size);
 
   int ndims = 1;
   int *dims = malloc(sizeof(int));
