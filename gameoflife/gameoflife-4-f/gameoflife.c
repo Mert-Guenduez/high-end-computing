@@ -13,13 +13,66 @@
 
 long TimeSteps = 100;
 
-void writeVTK2(long timestep, double *data, char prefix[1024], int rank, int lySize, int lxSize) {
+void show(double* currentfield, int size, int w, int rank) {
+  
+  int x;
+  //printf("\nP%d:\n", rank);
+  for (x = 0; x < size; x++) {
+    printf(currentfield[x] ? "1" : "0");//"\033[07m  \033[m" : "  ");
+    if ((x % w == (w-1))) printf("\n");
+  } 
+  fflush(stdout);
+}
+
+void display(double* currentfield, int size, int w, int rank, MPI_Comm comm) {
+  
+  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
+  MPI_Barrier(comm);
+  fflush(stdout);
+  if (rank == 0) {
+    //printf("\033[H");
+    fflush(stdout);
+    show(currentfield, size, w, rank);
+    //printf("\n");
+    //fflush(stdout);
+  }
+  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
+  MPI_Barrier(comm);
+
+  if (rank == 1) {
+    show(currentfield, size, w, rank);
+    //printf("\n");
+    //fflush(stdout);
+  }
+  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
+  MPI_Barrier(comm);
+
+  if (rank == 2) {
+    show(currentfield, size, w, rank);
+    //printf("\n");
+    //fflush(stdout);
+  }
+
+  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
+  MPI_Barrier(comm);
+
+  if (rank == 3) {
+    show(currentfield, size, w, rank);
+    //printf("\n");
+    //fflush(stdout);
+  }
+  fflush(stdout);
+  // REMOVE IF DEBUG DONE + REMOVE comm parameter from signature
+    MPI_Barrier(comm);
+}
+
+void writeVTK2(long timestep, double *data, char prefix[1024], int rank, int lySize, int lxSize, MPI_Comm comm) {
   char filename[2048];
 
   float deltax=1.0;
-  long  nxy = lxSize * lySize * sizeof(long);  
+  long  nxy = lxSize * lySize * sizeof(float);  
 
-  snprintf(filename, sizeof(filename), "%s-%05ld%s", prefix, timestep, ".vti");
+  snprintf(filename, sizeof(filename), "vti/%s-%05ld%s", prefix, timestep, ".vti");
   FILE* fp = fopen(filename, "w");
 
   fprintf(fp, "<?xml version=\"1.0\"?>\n");
@@ -34,64 +87,17 @@ void writeVTK2(long timestep, double *data, char prefix[1024], int rank, int lyS
   fprintf(fp, "_");
   fwrite((unsigned char*)&nxy, sizeof(long), 1, fp);
 
-  for (int y = 0; y < lySize; y++) {
-    for (int x = 0; x < lxSize; x++) {
-      int value = data[calcIndex(lxSize, x, y)];
-      fwrite((unsigned char*)&value, sizeof(int), 1, fp);
-      fflush(fp);
-    }
+  for (int x = 0; x < (lxSize*lySize); x++) {
+    float value = (float) data[x];
+    fwrite((unsigned char*)&value, sizeof(float), 1, fp);
+    fflush(fp);
   }
-
   
   fprintf(fp, "\n</AppendedData>\n");
   fprintf(fp, "</VTKFile>\n");
   fclose(fp);
 }
 
-/*double get_nums_neighbour(double* currentfield, int x, int y) {
-  int lefter, upper, righter, downer;
-  lefter = x-1;
-  upper = y-1;
-  righter = x+1;
-  downer = y+1;
-
-  if (x == 0) {
-    lefter = w-1;
-  }
-  if (y == 0) {
-    upper = h-1;
-  }
-  if (x == w-1) {
-    righter = 0;
-  }
-  if (y == h-1) {
-    downer = 0;
-  }
-  double neighbours_num = 0.0;
-  neighbours_num += currentfield[calcIndex(w, lefter, y)];
-  neighbours_num += currentfield[calcIndex(w, lefter, upper)];
-  neighbours_num += currentfield[calcIndex(w, lefter, downer)];
-  neighbours_num += currentfield[calcIndex(w, x, upper)];
-  neighbours_num += currentfield[calcIndex(w, x, downer)];
-  neighbours_num += currentfield[calcIndex(w, righter, upper)];
-  neighbours_num += currentfield[calcIndex(w, righter, y)];
-  neighbours_num += currentfield[calcIndex(w, righter, downer)];
-  return neighbours_num;
-}*/
-/*int coutLifingsPeriodic(double* processingfield, int i, int w) {
-  int n = 0;
-  int yStart = (int) i/w;
-  int xStart = i%w;
-  for (int y = (yStart-1); y <= (yStart+1); y++)
-  {   
-    for (int x = (xStart-1); x <= (xStart+1); x++) {
-      if (processingfield[calcIndex(w, x, y)]) {
-        n++;
-      }
-    }
-  }
-  return n;
-}*/
 int coutLifingsPeriodic(double* processingfield, int i, int w) {
   int n = 0;
   // left
@@ -121,21 +127,21 @@ int coutLifingsPeriodic(double* processingfield, int i, int w) {
  
 
 void evolve(double* processingfield, double* newfield, int w, int fieldlength, int rank) {
+    //if (rank == 2) printf("#%d N: ", rank);
     for (int i = w; i < fieldlength + w; i++) {
-      double neighbours_num = coutLifingsPeriodic(processingfield, i, w);
-      if(rank == 0){
-        printf("i: %d, neighbours:%d\n",i,neighbours_num);
-      }
+      int neighbours_num = coutLifingsPeriodic(processingfield, i, w);
+      //if (rank == 2) printf(" %d", neighbours_num);
       if(processingfield[i] == 1.0){
-      if (neighbours_num < 2.0) newfield[i-w] = 0.0;
-      if (neighbours_num > 3.0) newfield[i-w] = 0.0;
-      if (neighbours_num == 3.0 || neighbours_num == 2.0) newfield[i-w] = 1.0;
+      if (neighbours_num < 2) newfield[i-w] = 0.0;
+      if (neighbours_num > 3) newfield[i-w] = 0.0;
+      if (neighbours_num == 3 || neighbours_num == 2) newfield[i-w] = 1.0;
       }
       else{
-        if (neighbours_num == 3.0) newfield[i-w] = 1.0;
+        if (neighbours_num == 3) newfield[i-w] = 1.0;
         else newfield[i-w] = 0.0;
       }
     }
+    //if (rank == 2) printf("\n");
 }
 
 
@@ -200,7 +206,9 @@ void processCommunication(double* currentfield, double* leftfield, double* right
         communicator, // comm
         &status);     // status
 
-    printDebug(leftfield, lxSize, leftrank, rank);
+    /*if (rank == 2) printDebug(leftfield, lxSize, leftrank, rank);
+    if (rank == 3) printDebug(leftfield, lxSize, leftrank, rank);
+    if (rank == 1) printDebug(leftfield, lxSize, leftrank, rank);*/
 
     MPI_Send(&currentfield[lxSize*(lySize-1)], lxSize, MPI_DOUBLE, rightrank, 0, communicator);
   }
@@ -209,23 +217,25 @@ void processCommunication(double* currentfield, double* leftfield, double* right
     MPI_Send(&currentfield[lxSize*(lySize-1)], lxSize, MPI_DOUBLE, rightrank, 0, communicator);
     MPI_Recv(leftfield, lxSize, MPI_DOUBLE, leftrank, 0, communicator, &status);  
 
-    printDebug(leftfield, lxSize, leftrank, rank);
+    //printDebug(leftfield, lxSize, leftrank, rank);
   }
 
   // Restlichen schicken links, warten dann auf rechts
   if (rank != 0) {
-    MPI_Recv(rightfield, lxSize, MPI_DOUBLE, rightrank, 0, communicator, &status);
+    MPI_Recv(rightfield, lxSize, MPI_DOUBLE, rightrank, 1, communicator, &status);
     
-    printDebug(rightfield, lxSize, rightrank, rank);
+    /*if (rank == 2) printDebug(rightfield, lxSize, rightrank, rank);
+    if (rank == 3) printDebug(rightfield, lxSize, rightrank, rank);
+    if (rank == 1) printDebug(rightfield, lxSize, rightrank, rank);*/
 
-    MPI_Send(&currentfield[0], lxSize, MPI_DOUBLE, leftrank, 0, communicator);
+    MPI_Send(&currentfield[0], lxSize, MPI_DOUBLE, leftrank, 1, communicator);
   }
   // Root wartet auf rechts, schickt dann nach links
   if (rank == 0) {
-    MPI_Send(&currentfield[0], lxSize, MPI_DOUBLE, leftrank, 0, communicator);
-    MPI_Recv(rightfield, lxSize, MPI_DOUBLE, rightrank, 0, communicator, &status);
+    MPI_Send(&currentfield[0], lxSize, MPI_DOUBLE, leftrank, 1, communicator);
+    MPI_Recv(rightfield, lxSize, MPI_DOUBLE, rightrank, 1, communicator, &status);
     
-    printDebug(rightfield, lxSize, rightrank, rank);
+    //printDebug(rightfield, lxSize, rightrank, rank);
   }
 }
  
@@ -247,9 +257,17 @@ void game(int lxSize, int lySize, int rank, int size, MPI_Comm communicator) {
   // Präfix festlegen
   char prefix[6];
   snprintf(prefix, sizeof prefix, "%s%d%s", "P", rank, "-gol");
-  
   long t;
   for (t=0;t<TimeSteps;t++) {
+    
+    if (rank == 0) printf("Timestep: %ld\n", t);
+    fflush(stdout);
+    display(currentfield, lxSize*lySize, lxSize, rank, communicator);
+    MPI_Barrier(communicator);
+    //usleep(200000);
+
+    writeVTK2(t, currentfield, prefix, rank, lySize, lxSize, communicator);
+
     processCommunication(currentfield, leftfield, rightfield, lxSize, lySize, rank, communicator);
     memcpy(&processingfield[0], leftfield, lxSize * sizeof(leftfield));
     memcpy(&processingfield[lxSize], currentfield, lxSize * lySize * sizeof(currentfield)); 
@@ -264,17 +282,12 @@ void game(int lxSize, int lySize, int rank, int size, MPI_Comm communicator) {
       printf("#0 NACHBARN: %d\n", n);
     }*/
 
+    evolve(processingfield, newfield, lxSize, lxSize*lySize, rank);  
 
-    writeVTK2(t, currentfield, prefix, rank, lySize, lxSize);
-    evolve(processingfield, newfield, lxSize, lxSize*lySize, rank);
-    printf("%ld timestep\n",t);
-    //usleep(200000);
-    
-
-    //SWAP
-    double *temp = currentfield;
+    // SWAP
+    double* tmp = currentfield;
     currentfield = newfield;
-    newfield = temp;
+    newfield = tmp;
   }
   
   free(currentfield);
@@ -303,7 +316,7 @@ int main(int c, char **v) {
     return 1;
   }
 
-  printf("Initialisierung von Prozess #%d / %d\n", myrank, size);
+  //printf("Initialisierung von Prozess #%d / %d\n", myrank, size);
 
   int ndims = 1;
   int *dims = malloc(sizeof(int));
