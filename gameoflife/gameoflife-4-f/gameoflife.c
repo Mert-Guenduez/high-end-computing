@@ -11,7 +11,7 @@
 
 #define calcIndex(width, x,y)  ((y)*(width) + (x))
 
-long TimeSteps = 10;
+long TimeSteps = 100;
 
 void show(double* currentfield, int size, int w, int rank) {
   
