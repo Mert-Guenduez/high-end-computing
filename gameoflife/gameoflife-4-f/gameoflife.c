@@ -237,7 +237,7 @@ void game(int lxSize, int lySize, int rank, int size, MPI_Comm communicator) {
   bool changed;
   for (t=0;t<TimeSteps;t++) {
 
-    //display(currentfield, lxSize*lySize, lxSize, rank, size, communicator);
+    display(currentfield, lxSize*lySize, lxSize, rank, size, communicator);
     if(t > 0){
       handleAbort(communicator, rank, changed, t);
     }
