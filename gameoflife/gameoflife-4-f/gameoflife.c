@@ -11,7 +11,7 @@
 
 #define calcIndex(width, x,y)  ((y)*(width) + (x))
 
-long TimeSteps = 100;
+long TimeSteps = 10;
 
 void show(double* currentfield, int size, int w, int rank) {
   
@@ -99,8 +99,10 @@ int coutLifingsPeriodic(double* processingfield, int i, int w) {
 }
  
 
-void evolve(double* processingfield, double* newfield, int w, int fieldlength, int rank) {
+bool evolve(double* processingfield, double* newfield, int w, int fieldlength, int rank) {
+    bool changed = false;
     for (int i = w; i < fieldlength + w; i++) {
+      double oldNum = processingfield[i];
       int neighbours_num = coutLifingsPeriodic(processingfield, i, w);
       if(processingfield[i] == 1.0){
       if (neighbours_num < 2) newfield[i-w] = 0.0;
@@ -111,7 +113,11 @@ void evolve(double* processingfield, double* newfield, int w, int fieldlength, i
         if (neighbours_num == 3) newfield[i-w] = 1.0;
         else newfield[i-w] = 0.0;
       }
+      if(oldNum != newfield[i-w]){
+        changed = true;
+      }
     }
+    return changed;
 }
 
 
@@ -195,7 +201,21 @@ void processCommunication(double* currentfield, double* leftfield, double* right
     MPI_Recv(rightfield, lxSize, MPI_DOUBLE, rightrank, 1, communicator, &status);
   }
 }
- 
+void handleAbort(MPI_Comm communicator, int rank, bool changed, int timestep){
+  int *localChanged = calloc(1, sizeof(int));
+  localChanged[0] = changed;
+  int *allChanged = calloc(1, sizeof(int));
+  allChanged[0] = 0;
+  MPI_Reduce(localChanged, allChanged, 1, MPI_INT, MPI_SUM, 0, communicator);
+  if (rank == 0) {
+    if(allChanged[0] == 0){
+      printf("ABORTING ON TIMESTEP: %d, NO CHANGES SINCE LAST TIMESTEP\n", timestep);
+      fflush(stdout);
+      MPI_Abort(communicator, 0);
+    }
+  }
+}
+
 void game(int lxSize, int lySize, int rank, int size, MPI_Comm communicator) {
   
   // Prozess muss seine eigenen Daten lxSize*lySize und zwei zusätzliche Ränder (GhostLayer) größe lxSize verarbeiten 
@@ -214,21 +234,22 @@ void game(int lxSize, int lySize, int rank, int size, MPI_Comm communicator) {
   char prefix[6];
   snprintf(prefix, sizeof prefix, "%s%d%s", "P", rank, "-gol");
   long t;
+  bool changed;
   for (t=0;t<TimeSteps;t++) {
 
-    display(currentfield, lxSize*lySize, lxSize, rank, size, communicator);
-
+    //display(currentfield, lxSize*lySize, lxSize, rank, size, communicator);
+    if(t > 0){
+      handleAbort(communicator, rank, changed, t);
+    }
     usleep(100000);
 
     writeVTK2(t, currentfield, prefix, rank, lySize, lxSize, communicator);
-
     processCommunication(currentfield, leftfield, rightfield, lxSize, lySize, rank, communicator);
     memcpy(&processingfield[0], leftfield, lxSize * sizeof(leftfield));
     memcpy(&processingfield[lxSize], currentfield, lxSize * lySize * sizeof(currentfield)); 
     memcpy(&processingfield[lxSize+lxSize*lySize], rightfield, lxSize * sizeof(rightfield));
 
-    evolve(processingfield, newfield, lxSize, lxSize*lySize, rank);  
-
+    changed = evolve(processingfield, newfield, lxSize, lxSize*lySize, rank);
     // SWAP
     double* tmp = currentfield;
     currentfield = newfield;
